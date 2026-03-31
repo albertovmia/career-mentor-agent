@@ -1,0 +1,8 @@
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
+[phases.install]
+cmds = [
+    "npm install -g @googleworkspace/cli",
+    "pip install -r requirements.txt"
+]
