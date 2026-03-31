@@ -1,0 +1,23 @@
+{
+  "nombre": "Alberto",
+  "perfil_actual": "Digital Analytics / Marketing Analytics",
+  "objetivo": "AI Orchestrator / Augmented Analyst",
+  "salario_objetivo": 60000,
+  "modalidad": "híbrido o remoto",
+  "ubicacion": "Madrid, España",
+  "deadline": "Septiembre 2026",
+  "meses_restantes": 5,
+  "skills_actuales": [
+    "Digital Analytics", "Marketing Analytics", "Google Analytics",
+    "SQL", "Python básico", "Data Studio", "Excel avanzado",
+    "Tag Management", "SEO Analytics", "A/B Testing"
+  ],
+  "skills_objetivo": [
+    "LLM", "RAG", "LangChain", "Python avanzado", "Prompt Engineering",
+    "AI Agents", "Vector Databases", "MLOps básico", "LangGraph",
+    "FastAPI", "Docker básico"
+  ],
+  "narrativa_linkedin": "Profesional de Digital Analytics en transición hacia IA aplicada. No venderse aún como AI Orchestrator sino como alguien que incorpora IA a analytics.",
+  "linkedin_agente": "https://www.linkedin.com/in/alberto-agent",
+  "email_agente": "albertovm.ia@gmail.com"
+}

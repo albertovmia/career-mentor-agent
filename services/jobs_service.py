@@ -1,0 +1,122 @@
+import aiohttp
+from typing import List, Dict
+from config import settings
+from utils.logger import get_logger
+
+logger = get_logger("jobs_service")
+
+TARGET_QUERIES = [
+    "AI Orchestrator",
+    "Augmented Analyst",
+    "LLM Engineer remote",
+    "AI Engineer remote",
+    "Data Analyst AI",
+    "Prompt Engineer"
+]
+
+
+async def search_jobs(query: str = None, limit: int = 10) -> Dict:
+    """Busca ofertas en JSearch."""
+    if not settings.rapidapi_key:
+        return {"error": "RAPIDAPI_KEY no configurada", "ofertas": []}
+
+    # Ignorar queries con ciudad que rompen JSearch.
+    # Usar siempre las queries objetivo predefinidas.
+    # Si se pasa query manual, limpiarla de ciudades.
+    CITIES_TO_REMOVE = [
+        "madrid", "barcelona", "spain", "españa",
+        "remote", "remoto", "en madrid", "en barcelona"
+    ]
+    if query:
+        clean_query = query.lower()
+        for city in CITIES_TO_REMOVE:
+            clean_query = clean_query.replace(city, "").strip()
+        clean_query = clean_query.strip(" ,")
+        queries = [clean_query] if clean_query else TARGET_QUERIES[:3]
+    else:
+        queries = TARGET_QUERIES[:3]
+    all_jobs = []
+
+    headers = {
+        "X-RapidAPI-Key": settings.rapidapi_key,
+        "X-RapidAPI-Host": "jsearch.p.rapidapi.com"
+    }
+
+    async with aiohttp.ClientSession() as session:
+        for q in queries:
+            try:
+                params = {
+                    "query": q,
+                    "page": "1",
+                    "num_pages": "2",
+                    "date_posted": "week"
+                }
+                async with session.get(
+                    "https://jsearch.p.rapidapi.com/search",
+                    headers=headers,
+                    params=params,
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        jobs = data.get("data", [])
+                        logger.info(f"JSearch '{q}': {len(jobs)} ofertas")
+
+                        for job in jobs:
+                            # Defensivo: todos los campos pueden ser None
+                            titulo = job.get("job_title") or ""
+                            empresa = job.get("employer_name") or ""
+                            url = job.get("job_apply_link") or ""
+                            ciudad = job.get("job_city") or "Remote"
+                            pais = job.get("job_country") or ""
+                            ubicacion = f"{ciudad}, {pais}".strip(", ")
+
+                            if not titulo or not url:
+                                continue  # Saltar ofertas sin título o URL
+
+                            all_jobs.append({
+                                "titulo": titulo,
+                                "empresa": empresa,
+                                "url": url,
+                                "ubicacion": ubicacion,
+                                "remoto": bool(job.get("job_is_remote")),
+                                "descripcion": (job.get("job_description") or "")[:500],
+                                "skills": job.get("job_required_skills") or [],
+                                "salario_min": job.get("job_min_salary"),
+                                "salario_max": job.get("job_max_salary"),
+                                "fuente": "jsearch"
+                            })
+            except Exception as e:
+                logger.error(f"Error JSearch '{q}': {e}")
+
+    # Eliminar duplicados por URL
+    seen = set()
+    unique_jobs = []
+    for job in all_jobs:
+        if job["url"] not in seen and job["url"]:
+            seen.add(job["url"])
+            unique_jobs.append(job)
+
+    logger.info(f"Total ofertas únicas: {len(unique_jobs)}")
+    return {
+        "total": len(unique_jobs),
+        "ofertas": unique_jobs[:limit],
+        "formatted": _format_jobs(unique_jobs[:5])
+    }
+
+
+def _format_jobs(jobs: List[Dict]) -> str:
+    """Formatea ofertas para Telegram."""
+    if not jobs:
+        return "No encontré ofertas nuevas esta semana."
+
+    response = f"🎯 {len(jobs)} ofertas encontradas:\n\n"
+    for i, job in enumerate(jobs, 1):
+        remoto = "🌍 Remoto" if job.get("remoto") else f"📍 {job.get('ubicacion', 'N/A')}"
+        response += f"{i}. {job['titulo']}\n"
+        response += f"   🏢 {job['empresa']}\n"
+        response += f"   {remoto}\n"
+        if job.get("salario_min"):
+            response += f"   💰 desde {job['salario_min']:,}€\n"
+        response += f"   🔗 {job['url'][:70]}\n\n"
+    return response

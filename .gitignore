@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+data/memory.db
+credentials/token.json
+*.log
+career_mentor.log
