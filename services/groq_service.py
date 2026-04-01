@@ -510,39 +510,69 @@ class MentorService:
             # --- Gestor de Aprendizaje ---
 
             elif name == "add_learning_item":
-                url = args["url"]
-                # Casteo defensivo: el LLM puede enviar string
-                relevancia = args.get("relevancia", 5)
-                if isinstance(relevancia, str):
+                try:
+                    url = args.get("url", "")
+                    if not url:
+                        return {"error": "URL requerida"}
+                    
+                    # Intentar fetch de metadata con timeout
                     try:
-                        relevancia = int(relevancia)
-                    except ValueError:
-                        relevancia = 5
-                relevancia = max(1, min(10, relevancia))
-                metadata = await fetch_url_metadata(url)
-                item_id = add_learning_item(
-                    user_id=user_id,
-                    url=url,
-                    titulo=metadata["titulo"],
-                    descripcion=metadata.get("descripcion", ""),
-                    tipo=metadata.get("tipo", "articulo"),
-                    relevancia=relevancia,
-                    fecha_objetivo=args.get("fecha_objetivo"),
-                    notas=args.get("notas", "")
-                )
-                return {
-                    "id": item_id,
-                    "titulo": metadata["titulo"],
-                    "tipo": metadata["tipo"],
-                    "relevancia": relevancia,
-                    "fecha_objetivo": args.get("fecha_objetivo"),
-                    "mensaje": (
-                        f"✅ Guardado: '{metadata['titulo']}' "
-                        f"(ID {item_id}). Relevancia "
-                        f"{args.get('relevancia')}/10. "
-                        f"Fecha objetivo: {args.get('fecha_objetivo')}."
+                        from services.learning_service import (
+                            fetch_url_metadata
+                        )
+                        metadata = await fetch_url_metadata(url)
+                    except Exception:
+                        metadata = {}
+                    
+                    # Defensivo: garantizar todos los campos
+                    titulo = (
+                        metadata.get("titulo") or
+                        metadata.get("title") or
+                        url
                     )
-                }
+                    descripcion = metadata.get("descripcion", "")
+                    tipo = metadata.get("tipo", "video")
+                    
+                    # Casteo defensivo de relevancia
+                    relevancia = args.get("relevancia", 5)
+                    if isinstance(relevancia, str):
+                        try:
+                            relevancia = int(relevancia)
+                        except (ValueError, TypeError):
+                            relevancia = 5
+                    relevancia = max(1, min(10, int(relevancia or 5)))
+                    
+                    from memory.database import add_learning_item
+                    item_id = add_learning_item(
+                        user_id=user_id,
+                        url=url,
+                        titulo=str(titulo)[:200],
+                        descripcion=str(descripcion)[:500],
+                        tipo=str(tipo),
+                        relevancia=relevancia,
+                        fecha_objetivo=args.get("fecha_objetivo"),
+                        notas=str(args.get("notas", ""))
+                    )
+                    
+                    if item_id and item_id > 0:
+                        return {
+                            "id": item_id,
+                            "titulo": titulo,
+                            "tipo": tipo,
+                            "relevancia": relevancia,
+                            "fecha_objetivo": args.get("fecha_objetivo"),
+                            "mensaje": (
+                                f"✅ Guardado: '{titulo}' "
+                                f"(ID {item_id}). "
+                                f"Relevancia {relevancia}/10. "
+                                f"Fecha: {args.get('fecha_objetivo')}."
+                            )
+                        }
+                    else:
+                        return {"error": "No se pudo guardar en BD"}
+                except Exception as e:
+                    logger.error(f"Error en add_learning_item: {e}")
+                    return {"error": f"Error guardando: {str(e)}"}
 
             elif name == "list_learning_items":
                 from memory.database import get_learning_items

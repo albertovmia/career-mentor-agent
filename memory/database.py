@@ -248,7 +248,8 @@ def add_learning_item(user_id: int, url: str, titulo: str,
 
 
 def get_learning_items(user_id: int,
-                       estado: str = "pendiente") -> List[Dict]:
+                       estado: str = "pendiente",
+                       limit: int = 50) -> List[Dict]:
     conn = get_connection()
     p = _ph()
     try:
@@ -257,14 +258,16 @@ def get_learning_items(user_id: int,
             cur.execute(
                 f"SELECT * FROM learning_items "
                 f"WHERE user_id = {p} AND estado = {p} "
-                f"ORDER BY relevancia DESC, fecha_objetivo ASC",
-                (user_id, estado)
+                f"ORDER BY relevancia DESC, fecha_objetivo ASC "
+                f"LIMIT {p}",
+                (user_id, estado, limit)
             )
         else:
             cur.execute(
                 f"SELECT * FROM learning_items WHERE user_id = {p} "
-                f"ORDER BY relevancia DESC",
-                (user_id,)
+                f"ORDER BY relevancia DESC "
+                f"LIMIT {p}",
+                (user_id, limit)
             )
         rows = cur.fetchall()
         if USE_POSTGRES:

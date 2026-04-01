@@ -58,12 +58,25 @@ class GoogleWorkspaceService:
             (p for p in gws_candidates if p and os.path.exists(p)),
             None
         )
+        npx_candidates = [
+            shutil.which("npx"),
+            "/usr/bin/npx",
+            "/usr/local/bin/npx",
+            "/root/.nvm/versions/node/$(node --version 2>/dev/null)/bin/npx",
+            "/nix/var/nix/profiles/default/bin/npx",
+        ]
+        self.npx_bin = next(
+            (p for p in npx_candidates if p and os.path.exists(p)),
+            "npx"  # último fallback
+        )
+        logger.info(f"npx path: {self.npx_bin}")
+
         if gws_bin:
             logger.info(f"gws encontrado en: {gws_bin}")
             self.npx_gws = [gws_bin]
         else:
             logger.warning("gws no encontrado en paths conocidos, usando npx como fallback")
-            self.npx_gws = ["npx", "--yes", "@googleworkspace/cli"]
+            self.npx_gws = [self.npx_bin, "--yes", "@googleworkspace/cli"]
 
         if self.credentials_path and not os.path.exists(self.credentials_path):
             logger.warning(
