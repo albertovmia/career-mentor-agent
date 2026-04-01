@@ -41,7 +41,15 @@ class GoogleWorkspaceService:
 
     def __init__(self):
         from config import settings
-        self.credentials_path = settings.gws_credentials_file
+        import os as _os
+        _creds = settings.gws_credentials_file
+        if not _creds:
+            _creds = _os.path.join(
+                _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+                "credentials", "token.json"
+            )
+        self.credentials_path = _os.path.abspath(_creds)
+        logger.info(f"credentials_path: {self.credentials_path}")
         import shutil
         import os
         # Buscar gws en múltiples paths posibles
@@ -157,8 +165,9 @@ class GoogleWorkspaceService:
         self._ensure_token_format()
 
         env = os.environ.copy()
-        if self.credentials_path:
-            env["GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE"] = self.credentials_path
+        creds_abs = os.path.abspath(self.credentials_path)
+        env["GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE"] = creds_abs
+        logger.info(f"Using credentials: {creds_abs} (exists={os.path.exists(creds_abs)})")
         env["GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND"] = "file"
         env["PATH"] = (
             "/root/.local/bin:/root/.npm-global/bin:"

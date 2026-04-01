@@ -224,8 +224,11 @@ TOOLS = [
                 "properties": {
                     "estado": {
                         "type": "string",
-                        "enum": ["pendiente", "en_progreso", "completado"],
-                        "description": "Filtrar por estado. Omitir para ver todos."
+                        "description": (
+                            "Filtrar por estado: 'pendiente', "
+                            "'en_progreso' o 'completado'. "
+                            "Omitir para ver todos."
+                        )
                     }
                 },
                 "required": []
@@ -585,7 +588,7 @@ class MentorService:
                 try:
                     items = get_learning_items(
                         user_id=user_id,
-                        estado=args.get("estado"),
+                        estado=args.get("estado") or "pendiente",
                         limit=20
                     )
                     items = [i for i in (items or []) if i is not None]

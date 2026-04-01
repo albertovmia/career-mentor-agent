@@ -30,6 +30,19 @@ def main():
     signal.signal(signal.SIGTERM, handle_shutdown)
     signal.signal(signal.SIGINT, handle_shutdown)
 
+    import asyncio as _asyncio
+    import httpx as _httpx
+    # Limpiar webhook y sesiones previas para evitar Conflict
+    try:
+        _token = settings.telegram_bot_token
+        _httpx.get(
+            f"https://api.telegram.org/bot{_token}/deleteWebhook"
+            f"?drop_pending_updates=true",
+            timeout=5
+        )
+    except Exception:
+        pass
+
     logger.info("Bot iniciado correctamente.")
     app.run_polling(
         allowed_updates=["message"],
