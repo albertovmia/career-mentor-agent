@@ -86,6 +86,7 @@ async def fetch_url_metadata(url: str) -> Dict:
 
 def format_learning_list(items: list) -> str:
     """Formatea lista de items para Telegram."""
+    items = [i for i in (items or []) if i is not None]
     if not items:
         return "No hay recursos de aprendizaje guardados."
 

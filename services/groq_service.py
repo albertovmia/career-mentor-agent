@@ -434,7 +434,7 @@ class MentorService:
 
                 # Ejecutar cada herramienta
                 for tool_call in choice.message.tool_calls:
-                    args = json.loads(tool_call.function.arguments or "{}")
+                    args = json.loads(tool_call.function.arguments or "{}") or {}
                     result = await self._execute_tool(
                         tool_call.function.name, args, user_id
                     )
