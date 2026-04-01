@@ -42,7 +42,28 @@ class GoogleWorkspaceService:
     def __init__(self):
         from config import settings
         self.credentials_path = settings.gws_credentials_file
-        self.npx_gws = ["gws"]
+        import shutil
+        import os
+        # Buscar gws en múltiples paths posibles
+        gws_candidates = [
+            shutil.which("gws"),
+            "/root/.local/bin/gws",
+            "/root/.npm-global/bin/gws",
+            "/app/.npm-global/bin/gws",
+            "/home/app/.local/bin/gws",
+            "/usr/local/bin/gws",
+            "/usr/bin/gws",
+        ]
+        gws_bin = next(
+            (p for p in gws_candidates if p and os.path.exists(p)),
+            None
+        )
+        if gws_bin:
+            logger.info(f"gws encontrado en: {gws_bin}")
+            self.npx_gws = [gws_bin]
+        else:
+            logger.warning("gws no encontrado en paths conocidos, usando npx como fallback")
+            self.npx_gws = ["npx", "--yes", "@googleworkspace/cli"]
 
         if self.credentials_path and not os.path.exists(self.credentials_path):
             logger.warning(
@@ -126,6 +147,11 @@ class GoogleWorkspaceService:
         env = os.environ.copy()
         if self.credentials_path:
             env["GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE"] = self.credentials_path
+        env["GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND"] = "file"
+        env["PATH"] = (
+            "/root/.local/bin:/root/.npm-global/bin:"
+            "/app/.npm-global/bin:/usr/local/bin:"
+        ) + env.get("PATH", "")
 
         subcommands = resource.split(".") + method.split(".")
         cmd = self.npx_gws + subcommands

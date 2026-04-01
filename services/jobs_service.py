@@ -10,13 +10,28 @@ TARGET_QUERIES = [
     "Augmented Analyst",
     "LLM Engineer remote",
     "AI Engineer remote",
-    "Data Analyst AI",
-    "Prompt Engineer"
+    "Digital Analytics Manager",
+    "Data Analytics AI",
+    "Prompt Engineer",
+    "Marketing Analytics"
 ]
 
 
 async def search_jobs(query: str = None, limit: int = 10) -> Dict:
     """Busca ofertas en JSearch."""
+    INVALID_QUERIES = [
+        "nuevas", "trabajo", "empleo", "oferta", "ofertas",
+        "buscar", "encuentra", "dame", "muéstrame", "ver",
+        "busca", "new", "latest"
+    ]
+    if query:
+        q_clean = query.lower().strip()
+        if q_clean in INVALID_QUERIES or len(q_clean) < 4:
+            logger.warning(
+                f"Query inválida '{query}', usando targets por defecto"
+            )
+            query = None
+
     if not settings.rapidapi_key:
         return {"error": "RAPIDAPI_KEY no configurada", "ofertas": []}
 
@@ -106,17 +121,27 @@ async def search_jobs(query: str = None, limit: int = 10) -> Dict:
 
 
 def _format_jobs(jobs: List[Dict]) -> str:
-    """Formatea ofertas para Telegram."""
     if not jobs:
-        return "No encontré ofertas nuevas esta semana."
-
+        return (
+            "No encontré ofertas esta semana con las búsquedas actuales. "
+            "Prueba con una keyword específica como 'AI Engineer' o "
+            "'Digital Analytics'."
+        )
     response = f"🎯 {len(jobs)} ofertas encontradas:\n\n"
     for i, job in enumerate(jobs, 1):
-        remoto = "🌍 Remoto" if job.get("remoto") else f"📍 {job.get('ubicacion', 'N/A')}"
+        remoto_icon = (
+            "🌍 Remoto" if job.get("remoto")
+            else f"📍 {job.get('ubicacion', 'N/A')}"
+        )
         response += f"{i}. {job['titulo']}\n"
         response += f"   🏢 {job['empresa']}\n"
-        response += f"   {remoto}\n"
+        response += f"   {remoto_icon}\n"
         if job.get("salario_min"):
-            response += f"   💰 desde {job['salario_min']:,}€\n"
-        response += f"   🔗 {job['url'][:70]}\n\n"
+            try:
+                response += f"   💰 desde {int(job['salario_min']):,}€/año\n"
+            except (ValueError, TypeError):
+                pass
+        if job.get("url"):
+            response += f"   🔗 {job['url'][:80]}\n"
+        response += "\n"
     return response

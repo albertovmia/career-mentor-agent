@@ -9,3 +9,4 @@ beautifulsoup4==4.12.3
 apscheduler==3.10.4
 feedparser==6.0.11
 pymupdf==1.24.0
+psycopg2-binary==2.9.9

@@ -1,8 +1,13 @@
 [phases.setup]
 nixPkgs = ["nodejs_20"]
 
+[variables]
+NPM_CONFIG_PREFIX = "/root/.npm-global"
+
 [phases.install]
 cmds = [
+    "npm config set prefix /root/.npm-global",
     "npm install -g @googleworkspace/cli",
-    "pip install -r requirements.txt"
+    "pip install -r requirements.txt",
+    "echo 'gws check:' && ls /root/.npm-global/bin/ 2>/dev/null && ls /root/.local/bin/ 2>/dev/null || echo 'not found yet'"
 ]
