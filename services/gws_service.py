@@ -47,10 +47,10 @@ class GoogleWorkspaceService:
         # Buscar gws en múltiples paths posibles
         gws_candidates = [
             shutil.which("gws"),
+            "/nix/var/nix/profiles/default/bin/gws",
             "/root/.local/bin/gws",
             "/root/.npm-global/bin/gws",
             "/app/.npm-global/bin/gws",
-            "/home/app/.local/bin/gws",
             "/usr/local/bin/gws",
             "/usr/bin/gws",
         ]
@@ -60,10 +60,9 @@ class GoogleWorkspaceService:
         )
         npx_candidates = [
             shutil.which("npx"),
+            "/nix/var/nix/profiles/default/bin/npx",
             "/usr/bin/npx",
             "/usr/local/bin/npx",
-            "/root/.nvm/versions/node/$(node --version 2>/dev/null)/bin/npx",
-            "/nix/var/nix/profiles/default/bin/npx",
         ]
         self.npx_bin = next(
             (p for p in npx_candidates if p and os.path.exists(p)),

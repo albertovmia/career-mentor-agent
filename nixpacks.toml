@@ -5,7 +5,6 @@ nixPkgs = ["nodejs_20", "nodePackages.npm"]
 cmds = [
     "npm install -g @googleworkspace/cli",
     "pip install -r requirements.txt",
-    "echo 'Node:' && node --version",
-    "echo 'NPX:' && which npx && npx --version",
-    "echo 'GWS:' && which gws || echo 'gws not in PATH yet'"
+    "echo '=== PATHS ===' && which npx && which node",
+    "echo '=== GWS ===' && which gws || echo 'gws not in PATH at build time'"
 ]

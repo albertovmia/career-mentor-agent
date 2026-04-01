@@ -438,7 +438,12 @@ class MentorService:
                     result = await self._execute_tool(
                         tool_call.function.name, args, user_id
                     )
-                    result_str = json.dumps(result, ensure_ascii=False)
+                    import datetime
+                    def _json_serial(obj):
+                        if isinstance(obj, (datetime.date, datetime.datetime)):
+                            return obj.isoformat()
+                        raise TypeError(f"Type {type(obj).__name__} not serializable")
+                    result_str = json.dumps(result, ensure_ascii=False, default=_json_serial)
 
                     # Guardar resultado en BD
                     save_tool_result(user_id, tool_call.id, result_str)
@@ -583,14 +588,15 @@ class MentorService:
                         estado=args.get("estado"),
                         limit=20
                     )
-                    items = items or []
+                    items = [i for i in (items or []) if i is not None]
                 except Exception as e:
                     logger.error(f"Error en list_learning_items: {e}")
                     items = []
+                safe_items = [i for i in items if i is not None]
                 return {
-                    "total": len(items),
-                    "items": items,
-                    "formatted": format_learning_list(items)
+                    "total": len(safe_items),
+                    "items": safe_items,
+                    "formatted": format_learning_list(safe_items)
                 }
 
             elif name == "update_learning_item":
