@@ -299,7 +299,7 @@ class GoogleWorkspaceService:
         if not dt_str:
             return dt_str
         # Reemplazar espacio por T si el LLM genera "2026-04-07 10:00:00"
-        if len(dt_str) >= 10 and dt_str[10] == " ":
+        if len(dt_str) > 10 and dt_str[10] == " ":
             dt_str = dt_str[:10] + "T" + dt_str[11:]
         # Ya tiene zona horaria
         if dt_str.endswith("Z") or "+" in dt_str[10:] or dt_str.count("-") > 2:
