@@ -40,6 +40,7 @@ class GoogleWorkspaceService:
             logger.error(f"Error cargando credenciales desde env: {e}")
 
     def __init__(self):
+        self._load_credentials_from_env()
         from config import settings
         import os as _os
         _creds = settings.gws_credentials_file
