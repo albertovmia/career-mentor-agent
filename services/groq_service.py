@@ -415,6 +415,8 @@ class MentorService:
                         "No se pudo conectar con ningún servicio de IA. "
                         "Inténtalo en unos minutos."
                     )
+                if isinstance(response, str):
+                    return response
 
                 # Si el mensaje pide crear CV y no hay tool_calls,
                 # forzar reintento con mensaje más explícito
@@ -798,11 +800,16 @@ class MentorService:
                     )
                     try:
                         from prompts.mentor_prompt import MENTOR_TINY_PROMPT
+                        # Truncar historial para respetar límite 6000 TPM de 8B
+                        recent = (
+                            messages[-3:] if len(messages) > 3 else messages
+                        )
+                        non_system_recent = [
+                            m for m in recent if m.get("role") != "system"
+                        ]
                         fallback_messages = [
                             {"role": "system", "content": MENTOR_TINY_PROMPT}
-                            if m["role"] == "system" else m
-                            for m in messages
-                        ]
+                        ] + non_system_recent
                         response = await client.chat.completions.create(
                             model=settings.groq_model_fallback,
                             messages=fallback_messages,

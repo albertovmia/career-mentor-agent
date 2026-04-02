@@ -91,21 +91,42 @@ async def send_morning_briefing(bot: Bot):
         return
     user_id = int(settings.telegram_user_id)
     try:
+        from memory.database import get_learning_items
         overdue = get_overdue_learning_items(user_id)
-        if not overdue:
+        pending = get_learning_items(user_id, estado="pendiente", limit=5)
+
+        if not overdue and not pending:
+            await bot.send_message(
+                chat_id=user_id,
+                text=(
+                    "☀️ Buenos días Alberto. "
+                    "No tienes recursos de formación pendientes. "
+                    "¡Añade uno nuevo cuando quieras!"
+                )
+            )
             return
 
-        lines = [
-            f"☀️ Buenos días Alberto. "
-            f"Tienes {len(overdue)} recurso(s) de formación vencido(s):\n"
-        ]
-        for item in overdue[:5]:
-            lines.append(
-                f"• [{item['id']}] {item['titulo']} "
-                f"(vencía {item['fecha_objetivo']})"
-            )
+        lines = ["☀️ *Buenos días Alberto.* Tu formación de hoy:\n"]
+
+        if overdue:
+            lines.append(f"⚠️ *{len(overdue)} vencido(s):*")
+            for item in overdue[:3]:
+                lines.append(
+                    f"• [{item['id']}] {item['titulo']} "
+                    f"(vencía {item['fecha_objetivo']})"
+                )
+
+        if pending:
+            lines.append(f"\n📚 *Próximos pendientes:*")
+            for item in pending[:3]:
+                fecha = item.get('fecha_objetivo') or 'sin fecha'
+                lines.append(
+                    f"• [{item['id']}] {item['titulo']} "
+                    f"· 📅 {fecha} · ⭐{item.get('relevancia',5)}/10"
+                )
+
         lines.append(
-            "\n¿Quieres reprogramar alguno o empezar con el primero?"
+            "\n¿Quieres empezar con alguno o reprogramar?"
         )
         await bot.send_message(
             chat_id=user_id,
@@ -161,7 +182,14 @@ async def send_jobs_briefing(bot: Bot):
         logger.info(f"Jobs briefing enviado: {len(ofertas)} ofertas")
 
     except Exception as e:
-        logger.error(f"Error en jobs briefing: {e}")
+        logger.error(f"Error en jobs briefing: {e}", exc_info=True)
+        try:
+            await bot.send_message(
+                chat_id=user_id,
+                text="💼 No pude cargar las ofertas de hoy. Lo reintentaré mañana."
+            )
+        except Exception:
+            pass
 
 
 def create_scheduler(bot: Bot) -> AsyncIOScheduler:
