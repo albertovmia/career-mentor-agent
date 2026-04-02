@@ -226,6 +226,18 @@ def add_learning_item(user_id: int, url: str, titulo: str,
     p = _ph()
     try:
         cur = conn.cursor()
+        # Verificar si ya existe un item con la misma URL
+        cur.execute(
+            f"SELECT id FROM learning_items "
+            f"WHERE user_id = {p} AND url = {p}",
+            (user_id, url)
+        )
+        existing = cur.fetchone()
+        if existing:
+            existing_id = existing[0] if not USE_POSTGRES else existing[0]
+            logger.info(f"URL ya existe con id={existing_id}, no duplicar")
+            conn.close()
+            return existing_id
         cur.execute(
             f"INSERT INTO learning_items "
             f"(user_id, url, titulo, descripcion, tipo, relevancia, "

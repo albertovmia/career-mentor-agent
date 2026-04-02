@@ -300,6 +300,32 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "create_google_doc",
+            "description": (
+                "Crea un documento de Google Docs con el título y "
+                "contenido indicados. Úsala cuando el usuario pida "
+                "crear un documento, nota, informe o cualquier texto "
+                "en Google Docs."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "titulo": {
+                        "type": "string",
+                        "description": "Título del documento"
+                    },
+                    "contenido": {
+                        "type": "string",
+                        "description": "Contenido de texto del documento"
+                    }
+                },
+                "required": ["titulo", "contenido"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "create_improved_cv",
             "description": (
                 "Genera un CV mejorado en Google Docs con "
@@ -412,6 +438,19 @@ class MentorService:
                 # Sin tool calls → respuesta final
                 if not choice.message.tool_calls:
                     final_response = choice.message.content or ""
+                    # Evitar retornar alucinaciones de herramientas
+                    TOOL_KEYWORDS = [
+                        "estimado", "seleccionado", "candidato",
+                        "data analyst", "tu nombre"
+                    ]
+                    if any(
+                        kw in final_response.lower()
+                        for kw in TOOL_KEYWORDS
+                    ):
+                        final_response = (
+                            "No pude completar la acción. "
+                            "Inténtalo de nuevo."
+                        )
                     save_message(user_id, "assistant", final_response)
                     return final_response
 
@@ -620,6 +659,28 @@ class MentorService:
                     "mensaje": "✅ ¡Recurso completado! Buen trabajo."
                 }
 
+            elif name == "create_google_doc":
+                try:
+                    result = await self.gws.create_document(
+                        title=args.get("titulo", "Documento"),
+                        text_content=args.get("contenido", "")
+                    )
+                    if "error" not in result:
+                        doc_id = result.get("documentId", "")
+                        url = (
+                            f"https://docs.google.com/document/d/"
+                            f"{doc_id}/edit"
+                        )
+                        return {
+                            "success": True,
+                            "url": url,
+                            "mensaje": f"✅ Documento creado: {url}"
+                        }
+                    return result
+                except Exception as e:
+                    logger.error(f"Error creando doc: {e}")
+                    return {"error": str(e)}
+
             elif name == "read_google_doc":
                 from services.cv_service import extract_google_doc_id
                 url_or_id = args.get("url_or_id", "")
@@ -814,6 +875,24 @@ class MentorService:
                     f"OpenRouter ({model}) respondió — "
                     f"NOTA: sin tool_calls, solo texto"
                 )
+                # Si esperábamos una tool call, no retornar
+                # texto inventado — devolver error explícito
+                tool_names = [
+                    t["function"]["name"]
+                    for t in TOOLS
+                ]
+                last_content = response.choices[0].message.content or ""
+                if any(
+                    kw in last_content.lower()
+                    for kw in tool_names
+                ) or not response.choices[0].message.tool_calls:
+                    # OpenRouter no pudo ejecutar tools
+                    # Devolver mensaje honesto, no inventado
+                    return (
+                        "Lo siento, el servicio de IA está saturado "
+                        "ahora mismo y no puedo completar esa acción. "
+                        "Inténtalo en 30 segundos."
+                    )
                 return response
             except Exception as e:
                 logger.warning(
