@@ -215,21 +215,36 @@ class GoogleWorkspaceService:
     # --- Gmail Methods ---
 
     async def list_messages(self, query: str = "is:unread", max_results: int = 10) -> List[str]:
-        """List Gmail messages based on a query. Returns a clean list of strings."""
+        """List Gmail messages based on a query. Returns a clean list of strings with snippets."""
         result = await self.run_command("gmail", "users.messages.list", params={
             "userId": "me",
             "q": query,
             "maxResults": max_results
         })
 
-        if "messages" not in result:
+        if "messages" not in result or not result["messages"]:
             return []
 
-        clean_list = []
-        for msg in result.get("messages", []):
-            msg_id = msg.get("id")
-            snippet = msg.get("snippet", "Sin resumen").replace("\n", " ")
-            clean_list.append(f"ID: {msg_id} | Resumen: {snippet[:150]}")
+        messages = result.get("messages", [])
+        # Obtener snippets para los primeros 5 para dar contexto al LLM
+        to_fetch = messages[:5]
+        
+        async def fetch_snippet(msg):
+            m_id = msg.get("id")
+            detail = await self.run_command("gmail", "users.messages.get", params={
+                "userId": "me",
+                "id": m_id,
+                "format": "minimal"
+            })
+            snip = detail.get("snippet", "Sin resumen").replace("\n", " ")
+            return f"ID: {m_id} | Resumen: {snip[:150]}"
+
+        tasks = [fetch_snippet(m) for m in to_fetch]
+        clean_list = list(await asyncio.gather(*tasks))
+
+        # Añadir el resto solo como IDs si hay más
+        for msg in messages[5:]:
+            clean_list.append(f"ID: {msg.get('id')} | (Usa get_email_content para leer)")
 
         return clean_list
 

@@ -7,7 +7,9 @@ Usa SQLite como fallback (desarrollo local).
 import json
 import os
 from typing import List, Dict, Optional
+from contextlib import contextmanager
 from utils.logger import get_logger
+from utils.url_utils import normalize_url
 
 logger = get_logger("database")
 
@@ -222,28 +224,32 @@ def add_learning_item(user_id: int, url: str, titulo: str,
                       descripcion: str = "", tipo: str = "video",
                       relevancia: int = 5, fecha_objetivo: str = None,
                       notas: str = "") -> int:
+    # Normalizar URL para evitar duplicados (p.ej. youtu.be vs youtube.com)
+    n_url = normalize_url(url)
+    
     conn = get_connection()
     p = _ph()
     try:
         cur = conn.cursor()
-        # Verificar si ya existe un item con la misma URL
+        # Verificar si ya existe un item con la misma URL normalizada
         cur.execute(
             f"SELECT id FROM learning_items "
-            f"WHERE user_id = {p} AND url = {p}",
-            (user_id, url)
+            f"WHERE user_id = {p} AND (url = {p} OR url = {p})",
+            (user_id, url, n_url)
         )
         existing = cur.fetchone()
         if existing:
-            existing_id = existing[0] if not USE_POSTGRES else existing[0]
-            logger.info(f"URL ya existe con id={existing_id}, no duplicar")
+            existing_id = existing[0]
+            logger.info(f"URL ya existe (original o normalizada) con id={existing_id}, no duplicar")
             conn.close()
             return existing_id
+            
         cur.execute(
             f"INSERT INTO learning_items "
             f"(user_id, url, titulo, descripcion, tipo, relevancia, "
             f"fecha_objetivo, notas) "
             f"VALUES ({p},{p},{p},{p},{p},{p},{p},{p})",
-            (user_id, url, titulo, descripcion, tipo,
+            (user_id, n_url, titulo, descripcion, tipo,
              relevancia, fecha_objetivo, notas)
         )
         conn.commit()
