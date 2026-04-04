@@ -579,7 +579,7 @@ class MentorService:
                     relevancia = max(1, min(10, int(relevancia or 5)))
                     
                     from memory.database import add_learning_item
-                    item_id = add_learning_item(
+                    item_id, is_new = add_learning_item(
                         user_id=user_id,
                         url=url,
                         titulo=str(titulo)[:200],
@@ -591,6 +591,15 @@ class MentorService:
                     )
                     
                     if item_id and item_id > 0:
+                        if not is_new:
+                            return {
+                                "id": item_id,
+                                "titulo": titulo,
+                                "mensaje": (
+                                    f"ℹ️ El recurso '{titulo}' ya existe en tu "
+                                    f"base de datos (ID {item_id}) y no se ha duplicado."
+                                )
+                            }
                         return {
                             "id": item_id,
                             "titulo": titulo,
@@ -624,6 +633,12 @@ class MentorService:
                     logger.error(f"Error en list_learning_items: {e}")
                     items = []
                 safe_items = [i for i in items if i is not None]
+                safe_items.sort(
+                    key=lambda x: (
+                        int(x.get('relevancia')) if isinstance(x.get('relevancia'), (int, str)) and str(x.get('relevancia')).isdigit() else 0
+                    ),
+                    reverse=True
+                )
                 return {
                     "total": len(safe_items),
                     "items": safe_items,

@@ -223,7 +223,7 @@ def clear_history(user_id: int):
 def add_learning_item(user_id: int, url: str, titulo: str,
                       descripcion: str = "", tipo: str = "video",
                       relevancia: int = 5, fecha_objetivo: str = None,
-                      notas: str = "") -> int:
+                      notas: str = "") -> tuple[int, bool]:
     # Normalizar URL para evitar duplicados (p.ej. youtu.be vs youtube.com)
     n_url = normalize_url(url)
     
@@ -242,7 +242,7 @@ def add_learning_item(user_id: int, url: str, titulo: str,
             existing_id = existing[0]
             logger.info(f"URL ya existe (original o normalizada) con id={existing_id}, no duplicar")
             conn.close()
-            return existing_id
+            return existing_id, False
             
         cur.execute(
             f"INSERT INTO learning_items "
@@ -257,10 +257,10 @@ def add_learning_item(user_id: int, url: str, titulo: str,
             cur.execute("SELECT lastval()")
         else:
             cur.execute("SELECT last_insert_rowid()")
-        return cur.fetchone()[0]
+        return cur.fetchone()[0], True
     except Exception as e:
         logger.error(f"Error añadiendo learning item: {e}")
-        return -1
+        return -1, False
     finally:
         conn.close()
 

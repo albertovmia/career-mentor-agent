@@ -208,6 +208,16 @@ class GoogleWorkspaceService:
                 pass
             logger.error(f"Timeout (30s) ejecutando gws command: {' '.join(cmd)}")
             return {"error": "Timeout executing command."}
+        except GoogleAuthError as e:
+            msg = (
+                "ERROR DE AUTENTICACION: Tu token de Google ha expirado o es inválido. "
+                "Esto ocurre comúnmente porque la app está en modo 'Testing' en Google Cloud y caduca cada 7 días. "
+                "Para solucionarlo PARA SIEMPRE: Ve a Google Cloud Console > "
+                "APIs & Services > OAuth consent screen > Haz click en 'Publish App' (Publicar/En producción). "
+                "Luego genera un token nuevo y actualiza GOOGLE_TOKEN_BASE64."
+            )
+            logger.error(f"Autenticación fallida: {e}")
+            return {"error": msg}
         except Exception as e:
             logger.error(f"Error executing subprocess gws: {e}")
             return {"error": str(e)}
@@ -221,6 +231,9 @@ class GoogleWorkspaceService:
             "q": query,
             "maxResults": max_results
         })
+
+        if "error" in result:
+            return [f"⚠️ {result['error']}"]
 
         if "messages" not in result or not result["messages"]:
             return []
