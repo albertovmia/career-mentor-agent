@@ -140,11 +140,19 @@ def format_news_for_telegram(items: List[Dict]) -> str:
         "Xataka": "📱",
     }
 
+    RELEVANT_SOURCES = ['Café con IA', 'Cero a Senior']
+
     lines = ["📰 *Noticias de IA relevantes para ti:*\n"]
     for item in items:
-        icono = iconos.get(item.get("fuente", ""), "📌")
+        fuente = item.get("fuente", "")
+        icono = iconos.get(fuente, "📌")
+        
+        titulo_display = item['titulo']
+        if fuente in RELEVANT_SOURCES:
+            titulo_display = f"⭐️ {titulo_display}"
+            
         lines.append(
-            f"{icono} *{item['titulo']}*\n"
+            f"{icono} *{titulo_display}*\n"
             f"   {item.get('url', '')}"
         )
     return "\n\n".join(lines)

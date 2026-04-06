@@ -188,39 +188,50 @@ class GoogleWorkspaceService:
 
         logger.info(f"Running gws command: {' '.join(cmd)}")
 
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=env
-            )
-
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(), timeout=30.0
-            )
-            return await self._handle_response(process, stdout, stderr)
-
-        except asyncio.TimeoutError:
+        max_retries = 2
+        for attempt in range(max_retries + 1):
             try:
-                process.kill()
-            except ProcessLookupError:
-                pass
-            logger.error(f"Timeout (30s) ejecutando gws command: {' '.join(cmd)}")
-            return {"error": "Timeout executing command."}
-        except GoogleAuthError as e:
-            msg = (
-                "ERROR DE AUTENTICACION: Tu token de Google ha expirado o es inválido. "
-                "Esto ocurre comúnmente porque la app está en modo 'Testing' en Google Cloud y caduca cada 7 días. "
-                "Para solucionarlo PARA SIEMPRE: Ve a Google Cloud Console > "
-                "APIs & Services > OAuth consent screen > Haz click en 'Publish App' (Publicar/En producción). "
-                "Luego genera un token nuevo y actualiza GOOGLE_TOKEN_BASE64."
-            )
-            logger.error(f"Autenticación fallida: {e}")
-            return {"error": msg}
-        except Exception as e:
-            logger.error(f"Error executing subprocess gws: {e}")
-            return {"error": str(e)}
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=env
+                )
+    
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(), timeout=30.0
+                )
+                return await self._handle_response(process, stdout, stderr)
+    
+            except asyncio.TimeoutError:
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+                if attempt < max_retries:
+                    logger.warning(f"Timeout (30s) ejecutando gws command. Reintento {attempt + 1} de {max_retries} en 2s...")
+                    await asyncio.sleep(2)
+                    continue
+                logger.error(f"FALLO DEFINITIVO: Timeout (30s) ejecutando gws command: {' '.join(cmd)}")
+                return {"error": "Timeout executing command."}
+            except GoogleAuthError as e:
+                # Los errores de auth no se reintentan, requiere intervención manual
+                msg = (
+                    "ERROR DE AUTENTICACION: Tu token de Google ha expirado o es inválido. "
+                    "Esto ocurre comúnmente porque la app está en modo 'Testing' en Google Cloud y caduca cada 7 días. "
+                    "Para solucionarlo PARA SIEMPRE: Ve a Google Cloud Console > "
+                    "APIs & Services > OAuth consent screen > Haz click en 'Publish App' (Publicar/En producción). "
+                    "Luego genera un token nuevo y actualiza GOOGLE_TOKEN_BASE64."
+                )
+                logger.error(f"FALLO DEFINITIVO: Autenticación fallida: {e}")
+                return {"error": msg}
+            except Exception as e:
+                if attempt < max_retries:
+                    logger.warning(f"Error ejecutando subprocess gws: {e}. Reintento {attempt + 1} de {max_retries} en 2s...")
+                    await asyncio.sleep(2)
+                    continue
+                logger.error(f"FALLO DEFINITIVO: Error executing subprocess gws: {e}")
+                return {"error": str(e)}
 
     # --- Gmail Methods ---
 
@@ -296,11 +307,38 @@ class GoogleWorkspaceService:
 
         check_attachments(payload.get("parts", []))
 
+        import base64
+        def extract_text_body(parts):
+            for part in parts:
+                if part.get("mimeType") == "text/plain" and "data" in part.get("body", {}):
+                    return part["body"]["data"]
+                if "parts" in part:
+                    res = extract_text_body(part["parts"])
+                    if res: return res
+            return ""
+
+        body_b64 = payload.get("body", {}).get("data", "")
+        if not body_b64:
+            body_b64 = extract_text_body(payload.get("parts", []))
+
+        body_text = ""
+        if body_b64:
+            try:
+                body_text = base64.urlsafe_b64decode(body_b64).decode('utf-8', errors='ignore')
+            except Exception:
+                pass
+
+        texto_base = body_text if body_text else snippet
+        sintesis = texto_base.replace("\n", " ").strip()[:200]
+
+        summary = (
+            f"Emisor: {sender}\n"
+            f"Asunto: {subject}\n"
+            f"Síntesis: {sintesis}"
+        )
+
         return {
-            "from": sender,
-            "subject": subject,
-            "has_attachments": has_attachments,
-            "snippet": snippet[:500]
+            "summary": summary
         }
 
     async def send_email(self, to: str, subject: str, body: str) -> Dict[str, Any]:

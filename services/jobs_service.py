@@ -89,12 +89,25 @@ async def search_jobs(query: str = None, limit: int = 10) -> Dict:
                             if not titulo or not url:
                                 continue  # Saltar ofertas sin título o URL
 
+                            job_is_remote = bool(job.get("job_is_remote"))
+                            job_is_hybrid = bool(job.get("job_is_hybrid"))
+                            ubic_lower = ubicacion.lower()
+
+                            if job_is_remote:
+                                allowed_remote = ["spain", "españa", "madrid", "barcelona", "europe"]
+                                if not any(loc in ubic_lower for loc in allowed_remote):
+                                    continue
+                            
+                            if job_is_hybrid:
+                                if "madrid" not in ubic_lower:
+                                    continue
+
                             all_jobs.append({
                                 "titulo": titulo,
                                 "empresa": empresa,
                                 "url": url,
                                 "ubicacion": ubicacion,
-                                "remoto": bool(job.get("job_is_remote")),
+                                "remoto": job_is_remote,
                                 "descripcion": (job.get("job_description") or "")[:500],
                                 "skills": job.get("job_required_skills") or [],
                                 "salario_min": job.get("job_min_salary"),
