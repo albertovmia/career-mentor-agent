@@ -4,7 +4,7 @@ from groq import AsyncGroq
 from openai import AsyncOpenAI
 from config import settings
 from prompts.mentor_prompt import get_mentor_prompt
-from services.jobs_service import search_jobs
+from services.jobs_service import search_jobs, search_jobs_custom
 from services.gws_service import GoogleWorkspaceService
 from memory.database import (
     save_message, get_history, clear_history, save_tool_result,
@@ -36,9 +36,10 @@ TOOLS = [
         "function": {
             "name": "search_jobs",
             "description": (
-                "Busca ofertas de empleo de AI Orchestrator, LLM Engineer, "
-                "AI Engineer, Augmented Analyst. Úsala cuando el usuario pida "
-                "buscar trabajo, ofertas o empleo."
+                "Busca ofertas de empleo con filtros optimizados para el perfil "
+                "de Alberto (Analytics + IA, España, remoto/híbrido Madrid, salario >60k). "
+                "Úsala para el briefing diario o cuando el usuario pida "
+                "'las ofertas de hoy' o 'busca trabajo'."
             ),
             "parameters": {
                 "type": "object",
@@ -46,13 +47,65 @@ TOOLS = [
                     "query": {
                         "type": "string",
                         "description": (
-                            "Término de búsqueda. Ejemplos: 'AI Orchestrator', "
-                            "'LLM Engineer', 'Data Analyst AI'. "
-                            "Si no se especifica usa los roles objetivo por defecto."
+                            "Término de búsqueda. Si no se especifica usa "
+                            "las queries rotativas según el día de la semana."
                         )
                     }
                 },
                 "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_jobs_custom",
+            "description": (
+                "Búsqueda personalizada de empleo con parámetros específicos del usuario. "
+                "Úsala cuando el usuario pida buscar ofertas con criterios distintos "
+                "al briefing diario (diferente puesto, ciudad, salario o modalidad). "
+                "IMPORTANTE: extrae los parámetros del mensaje del usuario antes de llamar."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "Título del puesto o keywords. "
+                            "Ej: 'data analyst', 'product manager IA'"
+                        )
+                    },
+                    "location": {
+                        "type": "string",
+                        "description": (
+                            "Ciudad o región. Ej: 'Barcelona', 'Madrid', 'remoto'. "
+                            "Omitir si no se especifica."
+                        )
+                    },
+                    "salary_min": {
+                        "type": "integer",
+                        "description": (
+                            "Salario mínimo anual en EUR. Ej: 50000. "
+                            "Omitir si no se especifica."
+                        )
+                    },
+                    "remote_only": {
+                        "type": "boolean",
+                        "description": (
+                            "True si el usuario pide solo ofertas remotas o en teletrabajo."
+                        )
+                    },
+                    "sources": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": ["jsearch", "adzuna", "remotive"]},
+                        "description": (
+                            "Fuentes a consultar. Por defecto todas. "
+                            "Especificar solo si el usuario lo pide."
+                        )
+                    }
+                },
+                "required": ["query"]
             }
         }
     },
@@ -505,8 +558,16 @@ class MentorService:
 
             elif name == "search_jobs":
                 return await search_jobs(
+                    query=args.get("query")
+                )
+
+            elif name == "search_jobs_custom":
+                return await search_jobs_custom(
                     query=args.get("query"),
-                    limit=15
+                    location=args.get("location"),
+                    salary_min=args.get("salary_min"),
+                    remote_only=args.get("remote_only", False),
+                    sources=args.get("sources")
                 )
 
             elif name == "get_emails":

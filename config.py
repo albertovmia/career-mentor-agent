@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # RapidAPI JSearch
     rapidapi_key: str = Field(default="", env="RAPIDAPI_KEY")
 
+    # Adzuna Job Search API
+    adzuna_app_id: str = Field(default="", env="ADZUNA_APP_ID")
+    adzuna_app_key: str = Field(default="", env="ADZUNA_APP_KEY")
+
     # SQLite
     db_path: str = Field(default="./data/memory.db", env="DB_PATH")
 
