@@ -23,6 +23,15 @@ DEFAULT_QUERIES = [
 REMOTE_KEYWORDS = ["remot", "teletrabajo", "híbrid", "hybrid", "desde casa", "work from home"]
 
 
+# ---------------------------------------------------------------------------
+# Fix 1 helper: truncate strings to avoid bloating LLM context
+# ---------------------------------------------------------------------------
+def _truncate(s: str, max_len: int) -> str:
+    if not s:
+        return ""
+    return s[:max_len] + "…" if len(s) > max_len else s
+
+
 def _detect_remote_type(job: dict, source: str) -> str:
     """Detect remote type from job data."""
     description = (job.get("job_description") or job.get("description") or "").lower()
@@ -81,119 +90,115 @@ def _format_salary(salary_min: Optional[float], salary_max: Optional[float], sou
     return "No especificado"
 
 
+# ---------------------------------------------------------------------------
+# Fix 1: Normalize to lean schema — NO description, NO _raw
+# ---------------------------------------------------------------------------
 def _normalize_jsearch_job(job: dict) -> dict:
-    """Normalize JSearch job to common schema."""
+    """Normalize JSearch job to lean common schema."""
     return {
-        "title": job.get("job_title") or "",
-        "company": job.get("employer_name") or "",
-        "location": f"{job.get('job_city') or ''}, {job.get('job_country') or ''}".strip(", "),
-        "salary": _format_salary(
+        "title": _truncate(job.get("job_title") or "", 60),
+        "company": _truncate(job.get("employer_name") or "", 40),
+        "location": _truncate(
+            f"{job.get('job_city') or ''}, {job.get('job_country') or ''}".strip(", "),
+            30
+        ),
+        "salary": _truncate(_format_salary(
             job.get("job_min_salary"),
             job.get("job_max_salary"),
             "jsearch"
-        ),
+        ), 25),
         "remote_type": _detect_remote_type(job, "jsearch"),
         "url": job.get("job_apply_link") or "",
         "date_posted": job.get("job_posted_at_datetime_utc") or "",
         "source": "JSearch",
-        "_raw": job  # Keep raw data for post-filtering
+        # store only what _passes_default_filters needs (no full description)
+        "_city": (job.get("job_city") or "").lower(),
+        "_is_remote": bool(job.get("job_is_remote")),
+        "_description_snippet": (job.get("job_description") or "")[:200].lower(),
     }
 
 
 def _normalize_adzuna_job(job: dict) -> dict:
-    """Normalize Adzuna job to common schema."""
+    """Normalize Adzuna job to lean common schema."""
     location = job.get("location", {})
     location_str = location.get("display_name", "") if isinstance(location, dict) else ""
+    area = location.get("area", []) if isinstance(location, dict) else []
 
     return {
-        "title": job.get("title") or "",
-        "company": job.get("company", {}).get("display_name", "") if isinstance(job.get("company"), dict) else str(job.get("company", "")),
-        "location": location_str,
-        "salary": _format_salary(
+        "title": _truncate(job.get("title") or "", 60),
+        "company": _truncate(
+            job.get("company", {}).get("display_name", "") if isinstance(job.get("company"), dict) else str(job.get("company", "")),
+            40
+        ),
+        "location": _truncate(location_str, 30),
+        "salary": _truncate(_format_salary(
             job.get("salary_min"),
             job.get("salary_max"),
             "adzuna"
-        ),
+        ), 25),
         "remote_type": _detect_remote_type(job, "adzuna"),
         "url": job.get("redirect_url") or "",
         "date_posted": job.get("created") or "",
         "source": "Adzuna",
-        "_raw": job
+        # filtering helpers
+        "_location_display": location_str.lower(),
+        "_area": [str(a).lower() for a in area] if isinstance(area, list) else [],
+        "_description_snippet": (job.get("description") or "")[:200].lower(),
     }
 
 
 def _normalize_remotive_job(job: dict) -> dict:
-    """Normalize Remotive job to common schema."""
+    """Normalize Remotive job to lean common schema."""
+    salary_raw = job.get("salary") or ""
     return {
-        "title": job.get("title") or "",
-        "company": job.get("company_name") or "",
-        "location": job.get("candidate_required_location") or "",
-        "salary": job.get("salary") or "No especificado",
-        "remote_type": "Remoto",  # Remotive is 100% remote
+        "title": _truncate(job.get("title") or "", 60),
+        "company": _truncate(job.get("company_name") or "", 40),
+        "location": _truncate(job.get("candidate_required_location") or "", 30),
+        "salary": _truncate(salary_raw if salary_raw else "No especificado", 25),
+        "remote_type": "Remoto",
         "url": job.get("url") or "",
         "date_posted": job.get("publication_date") or "",
         "source": "Remotive",
-        "_raw": job
     }
 
 
 def _passes_default_filters(job: dict) -> bool:
-    """Check if job passes default filters for scheduled briefing.
-
-    Keep result if ANY of these is true:
-    - job_city is None or empty string
-    - job_city.lower() contains "madrid"
-    - job_is_remote == True
-    - job_description.lower() contains remote keywords
-    """
-    raw = job.get("_raw", job)
-
+    """Check if job passes default filters for scheduled briefing."""
     # For JSearch
     if job.get("source") == "JSearch":
-        city = (raw.get("job_city") or "").lower()
-        description = (raw.get("job_description") or "").lower()
+        city = job.get("_city", "")
 
-        # Empty city = no location restriction
         if not city:
             return True
-
-        # Madrid in city
         if "madrid" in city:
             return True
-
-        # Remote flag
-        if raw.get("job_is_remote"):
+        if job.get("_is_remote"):
             return True
-
-        # Remote keywords in description
-        if any(kw in description for kw in REMOTE_KEYWORDS):
+        if any(kw in job.get("_description_snippet", "") for kw in REMOTE_KEYWORDS):
             return True
-
         return False
 
-    # For Adzuna (default mode only)
+    # For Adzuna
     if job.get("source") == "Adzuna":
-        location = raw.get("location", {})
-        location_display = (location.get("display_name", "") or "").lower() if isinstance(location, dict) else ""
-        description = (raw.get("description") or "").lower()
-        area = location.get("area", []) if isinstance(location, dict) else []
+        location_display = job.get("_location_display", "")
+        description_snippet = job.get("_description_snippet", "")
+        area = job.get("_area", [])
 
-        # Madrid in display name
         if "madrid" in location_display:
             return True
-
-        # Remote keywords
-        if any(kw in description for kw in REMOTE_KEYWORDS):
+        if any(kw in description_snippet for kw in REMOTE_KEYWORDS):
             return True
-
-        # Madrid in area list
-        if isinstance(area, list) and any("madrid" in str(a).lower() for a in area):
+        if any("madrid" in a for a in area):
             return True
-
         return False
 
     # For Remotive - already filtered by location in _search_remotive
     return True
+
+
+def _strip_filter_fields(job: dict) -> dict:
+    """Remove internal filtering fields before returning to LLM."""
+    return {k: v for k, v in job.items() if not k.startswith("_")}
 
 
 def _dedup_key(job: dict) -> tuple:
@@ -203,6 +208,78 @@ def _dedup_key(job: dict) -> tuple:
     return (title, company)
 
 
+# ---------------------------------------------------------------------------
+# Fix 2: Score jobs by Spain/remote priority
+# ---------------------------------------------------------------------------
+def _score_job(job: dict) -> int:
+    score = 0
+    loc = job.get("location", "").lower()
+    rt = job.get("remote_type", "").lower()
+
+    # Geography priority
+    if "madrid" in loc:
+        score += 10
+    elif "españa" in loc or "spain" in loc or loc == "es":
+        score += 7
+    elif "europe" in loc or "europa" in loc or "emea" in loc:
+        score += 4
+    elif "worldwide" in loc or "world" in loc or loc == "":
+        score += 2
+
+    # Modality priority
+    if rt == "remoto":
+        score += 5
+    elif rt == "híbrido":
+        score += 4
+
+    # Penalize presencial outside Madrid
+    if rt == "presencial" and "madrid" not in loc:
+        score -= 10
+
+    return score
+
+
+# ---------------------------------------------------------------------------
+# Fix 3: Balance results across sources with round-robin
+# ---------------------------------------------------------------------------
+def _balance_sources(jsearch: list, adzuna: list, remotive: list, total: int) -> list:
+    """Take results from each source in rotation until total reached."""
+    sources = [list(s) for s in [jsearch, adzuna, remotive] if s]
+    result = []
+    i = 0
+    while len(result) < total and any(sources):
+        src = sources[i % len(sources)]
+        if src:
+            result.append(src.pop(0))
+        sources = [s for s in sources if s]
+        if not sources:
+            break
+        i += 1
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Fix 5: Compact LLM summary string
+# ---------------------------------------------------------------------------
+def _format_jobs_for_llm(jobs: list, sources_used: list) -> str:
+    if not jobs:
+        return "Sin ofertas encontradas hoy."
+
+    lines = [f"Ofertas ({len(jobs)}) | Fuentes: {', '.join(sources_used)}\n"]
+    for i, j in enumerate(jobs, 1):
+        salary = j["salary"] if j["salary"] != "No especificado" else "—"
+        lines.append(
+            f"{i}. {j['title']} @ {j['company']}\n"
+            f"   📍{j['location']} · {j['remote_type']} · 💶{salary}\n"
+            f"   🔗{j['url']}\n"
+            f"   [{j['source']}] {j['date_posted']}"
+        )
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Source search functions
+# ---------------------------------------------------------------------------
 async def _search_jsearch(query: str) -> List[dict]:
     """Search JSearch API with fixed query params."""
     if not settings.rapidapi_key:
@@ -246,7 +323,8 @@ async def _search_jsearch(query: str) -> List[dict]:
     except Exception as e:
         logger.error(f"Error JSearch '{query}': {e}")
 
-    return all_jobs
+    # Fix 4: Slice to top 5 before returning
+    return all_jobs[:5]
 
 
 async def _search_adzuna(query: str, location: str = None, salary_min: int = None) -> List[dict]:
@@ -305,7 +383,8 @@ async def _search_adzuna(query: str, location: str = None, salary_min: int = Non
     except Exception as e:
         logger.error(f"Error Adzuna '{query}': {e}")
 
-    return all_jobs
+    # Fix 4: Slice to top 5 before returning
+    return all_jobs[:5]
 
 
 async def _search_remotive(query: str, location_hint: str = None) -> List[dict]:
@@ -360,20 +439,23 @@ async def _search_remotive(query: str, location_hint: str = None) -> List[dict]:
     except Exception as e:
         logger.error(f"Error Remotive '{query}': {e}")
 
-    return all_jobs
+    # Fix 4: Slice to top 5 before returning
+    return all_jobs[:5]
 
 
 async def search_jobs(query: str = None) -> dict:
     """Search jobs from all sources for scheduled briefing.
 
     Uses rotating queries based on weekday if no query provided.
-    Returns top 8 results after deduplication and sorting.
+    Returns top 5 results after deduplication, balancing and scoring.
     """
+    LIMIT = 5
+
     # Use rotating query if none provided
     if query is None:
         query = DEFAULT_QUERIES[datetime.now(ZoneInfo("Europe/Madrid")).weekday()]
 
-    # Fetch from all sources in parallel
+    # Fix 4: Fetch from all sources in parallel (each already sliced to [:5])
     results_raw = await asyncio.gather(
         _search_jsearch(query),
         _search_adzuna(query),
@@ -381,47 +463,59 @@ async def search_jobs(query: str = None) -> dict:
         return_exceptions=True
     )
 
-    # Flatten and filter exceptions
-    all_jobs = []
-    for result in results_raw:
-        if isinstance(result, Exception):
-            logger.error(f"Error en fuente: {result}")
-        elif isinstance(result, list):
-            all_jobs.extend(result)
+    jsearch_jobs, adzuna_jobs, remotive_jobs = [], [], []
+    sources_list = [jsearch_jobs, adzuna_jobs, remotive_jobs]
+    source_labels = ["JSearch", "Adzuna", "Remotive"]
 
-    # Apply default post-filters (only for scheduled mode)
-    filtered_jobs = [job for job in all_jobs if _passes_default_filters(job)]
+    for i, result in enumerate(results_raw):
+        if isinstance(result, Exception):
+            logger.error(f"Error en fuente {source_labels[i]}: {result}")
+        elif isinstance(result, list):
+            sources_list[i].extend(result)
+
+    # Apply default post-filters (scheduled mode only)
+    jsearch_jobs = [j for j in jsearch_jobs if _passes_default_filters(j)]
+    adzuna_jobs = [j for j in adzuna_jobs if _passes_default_filters(j)]
+    # remotive: already location-filtered in _search_remotive
+
+    # Strip internal filter fields before further processing
+    jsearch_jobs = [_strip_filter_fields(j) for j in jsearch_jobs]
+    adzuna_jobs = [_strip_filter_fields(j) for j in adzuna_jobs]
+
+    # Fix 3: Balance sources
+    balanced = _balance_sources(jsearch_jobs, adzuna_jobs, remotive_jobs, total=LIMIT * 2)
 
     # Deduplicate
     seen = set()
     unique_jobs = []
-    for job in filtered_jobs:
+    for job in balanced:
         key = _dedup_key(job)
         if key not in seen:
             seen.add(key)
             unique_jobs.append(job)
 
-    # Sort by date_posted descending
-    unique_jobs.sort(key=lambda x: x.get("date_posted") or "", reverse=True)
+    # Fix 2: Sort by Spain/remote score (date as tiebreaker)
+    unique_jobs.sort(
+        key=lambda x: (_score_job(x), x.get("date_posted") or ""),
+        reverse=True
+    )
 
-    # Return top 8
-    top_jobs = unique_jobs[:8]
+    top_jobs = unique_jobs[:LIMIT]
 
     if not top_jobs:
         return {
-            "jobs": [],
-            "message": "No se encontraron ofertas hoy.",
-            "total": 0,
+            "result": "Sin ofertas encontradas hoy.",
+            "jobs_count": 0,
             "sources_used": []
         }
 
-    sources_used = list(set(job["source"] for job in top_jobs))
+    sources_used = list(dict.fromkeys(job["source"] for job in top_jobs))
 
+    # Fix 5: Return compact string
     return {
-        "jobs": top_jobs,
-        "total": len(unique_jobs),
-        "sources_used": sources_used,
-        "formatted": _format_jobs(top_jobs)
+        "result": _format_jobs_for_llm(top_jobs, sources_used),
+        "jobs_count": len(top_jobs),
+        "sources_used": sources_used
     }
 
 
@@ -444,6 +538,8 @@ async def search_jobs_custom(
 
     Returns top 10 results without default post-filters.
     """
+    LIMIT = 10
+
     if sources is None:
         sources = ["jsearch", "adzuna", "remotive"]
 
@@ -456,7 +552,6 @@ async def search_jobs_custom(
         source_names.append("JSearch")
 
     if "adzuna" in sources:
-        # For custom search, pass location and salary_min
         tasks.append(_search_adzuna(query, location=location, salary_min=salary_min))
         source_names.append("Adzuna")
 
@@ -464,78 +559,92 @@ async def search_jobs_custom(
         tasks.append(_search_remotive(query, location_hint=location))
         source_names.append("Remotive")
 
-    # Execute all searches in parallel
+    # Execute all searches in parallel (each already sliced to [:5])
     results_raw = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # Flatten and filter exceptions
-    all_jobs = []
-    for result in results_raw:
+    # Separate by source for balancing
+    per_source: dict = {}
+    for idx, name in enumerate(source_names):
+        result = results_raw[idx]
         if isinstance(result, Exception):
-            logger.error(f"Error en fuente: {result}")
+            logger.error(f"Error en fuente {name}: {result}")
+            per_source[name] = []
         elif isinstance(result, list):
-            all_jobs.extend(result)
+            per_source[name] = result
+        else:
+            per_source[name] = []
 
-    # Apply custom filters (NOT default post-filters)
-    filtered_jobs = all_jobs
+    # Strip internal filter fields
+    for name in per_source:
+        per_source[name] = [_strip_filter_fields(j) for j in per_source[name]]
 
-    # Remote-only filter
+    # Apply remote-only filter per source
     if remote_only:
-        filtered_jobs = [
-            job for job in filtered_jobs
-            if job.get("remote_type") in ["Remoto", "Híbrido"]
-        ]
+        for name in per_source:
+            per_source[name] = [
+                j for j in per_source[name]
+                if j.get("remote_type") in ["Remoto", "Híbrido"]
+            ]
 
-    # Salary filter (keep if salary_min >= requested OR salary not specified)
+    # Salary filter per source
     if salary_min:
+        import re
+
         def passes_salary(job: dict) -> bool:
             salary_str = job.get("salary", "")
             if "No especificado" in salary_str:
                 return True
-            # Extract first number from salary string
-            import re
             numbers = re.findall(r'(\d+)', salary_str.replace(".", ""))
             if numbers:
                 first_num = int(numbers[0])
                 return first_num >= salary_min
             return True
 
-        filtered_jobs = [job for job in filtered_jobs if passes_salary(job)]
+        for name in per_source:
+            per_source[name] = [j for j in per_source[name] if passes_salary(j)]
+
+    # Fix 3: Balance sources
+    js = per_source.get("JSearch", [])
+    az = per_source.get("Adzuna", [])
+    rm = per_source.get("Remotive", [])
+    balanced = _balance_sources(js, az, rm, total=LIMIT * 2)
 
     # Deduplicate
     seen = set()
     unique_jobs = []
-    for job in filtered_jobs:
+    for job in balanced:
         key = _dedup_key(job)
         if key not in seen:
             seen.add(key)
             unique_jobs.append(job)
 
-    # Sort by date_posted descending
-    unique_jobs.sort(key=lambda x: x.get("date_posted") or "", reverse=True)
+    # Fix 2: Sort by Spain/remote score (date as tiebreaker)
+    unique_jobs.sort(
+        key=lambda x: (_score_job(x), x.get("date_posted") or ""),
+        reverse=True
+    )
 
-    # Return top 10
-    top_jobs = unique_jobs[:10]
+    top_jobs = unique_jobs[:LIMIT]
 
     if not top_jobs:
         return {
-            "jobs": [],
-            "message": f"No se encontraron ofertas para '{query}' con los filtros especificados.",
-            "total": 0,
+            "result": f"No se encontraron ofertas para '{query}' con los filtros especificados.",
+            "jobs_count": 0,
             "sources_used": []
         }
 
-    sources_used = list(set(job["source"] for job in top_jobs))
+    sources_used = list(dict.fromkeys(job["source"] for job in top_jobs))
 
+    # Fix 5: Return compact string
     return {
-        "jobs": top_jobs,
-        "total": len(unique_jobs),
-        "sources_used": sources_used,
-        "formatted": _format_jobs(top_jobs)
+        "result": _format_jobs_for_llm(top_jobs, sources_used),
+        "jobs_count": len(top_jobs),
+        "sources_used": sources_used
     }
 
 
 def _format_jobs(jobs: List[Dict]) -> str:
-    """Format jobs for display."""
+    """Format jobs for display (kept for any internal callers)."""
     if not jobs:
         return (
             "No encontré ofertas con los criterios especificados. "
