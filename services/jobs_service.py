@@ -10,13 +10,13 @@ logger = get_logger("jobs_service")
 
 # Rotating queries based on weekday (monday=0)
 DEFAULT_QUERIES = [
-    "Senior Analytics Engineer",          # Monday
-    "Head of Digital Analytics",          # Tuesday
-    "Marketing Data Scientist",           # Wednesday
-    "Data Analyst AI",                    # Thursday
-    "Analytics Lead Machine Learning",    # Friday
-    "Digital Analytics Manager",          # Saturday
-    "Data Analytics AI Consultant",       # Sunday
+    "Senior Analytics Engineer",        # Monday
+    "Head of Digital Analytics",        # Tuesday
+    "Marketing Data Scientist",         # Wednesday
+    "Data Analyst Machine Learning",    # Thursday
+    "Digital Analytics Lead",           # Friday
+    "Data Science Manager",             # Saturday
+    "Analytics Engineer",               # Sunday
 ]
 
 # Remote keywords for post-filtering (case-insensitive)
@@ -100,7 +100,7 @@ def _normalize_jsearch_job(job: dict) -> dict:
         "company": _truncate(job.get("employer_name") or "", 40),
         "location": _truncate(
             f"{job.get('job_city') or ''}, {job.get('job_country') or ''}".strip(", "),
-            30
+            35
         ),
         "salary": _truncate(_format_salary(
             job.get("job_min_salary"),
@@ -130,7 +130,7 @@ def _normalize_adzuna_job(job: dict) -> dict:
             job.get("company", {}).get("display_name", "") if isinstance(job.get("company"), dict) else str(job.get("company", "")),
             40
         ),
-        "location": _truncate(location_str, 30),
+        "location": _truncate(location_str, 35),
         "salary": _truncate(_format_salary(
             job.get("salary_min"),
             job.get("salary_max"),
@@ -153,7 +153,7 @@ def _normalize_remotive_job(job: dict) -> dict:
     return {
         "title": _truncate(job.get("title") or "", 60),
         "company": _truncate(job.get("company_name") or "", 40),
-        "location": _truncate(job.get("candidate_required_location") or "", 30),
+        "location": _truncate(job.get("candidate_required_location") or "", 35),
         "salary": _truncate(salary_raw if salary_raw else "No especificado", 25),
         "remote_type": "Remoto",
         "url": job.get("url") or "",
@@ -209,32 +209,55 @@ def _dedup_key(job: dict) -> tuple:
 
 
 # ---------------------------------------------------------------------------
-# Fix 2: Score jobs by Spain/remote priority
+# BUG 3 Fix A: Hard filter — exclude explicit non-Spain geographies
+# ---------------------------------------------------------------------------
+def _is_spain_compatible(job: dict) -> bool:
+    loc = job.get("location", "").lower()
+    rt = job.get("remote_type", "").lower()
+
+    # Always keep: explicitly Spain/Madrid/Europe/remote with no geo restriction
+    if any(k in loc for k in ["madrid", "españa", "spain", "barcelona", "valencia"]):
+        return True
+    if any(k in loc for k in ["europe", "europa", "emea", "worldwide", "world"]):
+        return True
+    if rt == "remoto" and loc in ("", "no especificado"):
+        return True
+
+    # Exclude: explicit non-Spain geography
+    excluded = ["usa", "united states", "uk ", "united kingdom", "london",
+                "new york", "san francisco", "canada", "australia",
+                "germany", "france", "italia", "netherlands"]
+    if any(k in loc for k in excluded):
+        return False
+
+    # Default: keep if no clear geography (benefit of the doubt)
+    return True
+
+
+# ---------------------------------------------------------------------------
+# BUG 3 Fix B: Score jobs by Spain/remote priority
 # ---------------------------------------------------------------------------
 def _score_job(job: dict) -> int:
     score = 0
     loc = job.get("location", "").lower()
     rt = job.get("remote_type", "").lower()
 
-    # Geography priority
     if "madrid" in loc:
         score += 10
-    elif "españa" in loc or "spain" in loc or loc == "es":
+    elif any(k in loc for k in ["españa", "spain", "barcelona"]):
         score += 7
-    elif "europe" in loc or "europa" in loc or "emea" in loc:
+    elif any(k in loc for k in ["europe", "europa", "emea"]):
         score += 4
-    elif "worldwide" in loc or "world" in loc or loc == "":
+    elif loc in ("", "worldwide", "world"):
         score += 2
 
-    # Modality priority
     if rt == "remoto":
         score += 5
     elif rt == "híbrido":
         score += 4
 
-    # Penalize presencial outside Madrid
     if rt == "presencial" and "madrid" not in loc:
-        score -= 10
+        score -= 8
 
     return score
 
@@ -342,10 +365,24 @@ async def _search_adzuna(query: str, location: str = None, salary_min: int = Non
         logger.warning("Adzuna no configurado: ADZUNA_APP_ID o ADZUNA_APP_KEY vacíos")
         return []
 
+    # BUG 2 Fix: Map niche/anglophone queries to broader Adzuna-friendly terms
+    ADZUNA_QUERY_MAP = {
+        "ai orchestrator": "artificial intelligence",
+        "llm engineer": "machine learning engineer",
+        "agentic ai developer": "AI developer",
+        "analytics engineer ai": "data engineer",
+        "head of ai": "data science manager",
+        "digital analytics manager": "digital analytics",
+        "data analytics ai consultant": "data analytics",
+        "senior analytics engineer": "analytics engineer",
+        "marketing data scientist": "data scientist marketing",
+    }
+    adzuna_query = ADZUNA_QUERY_MAP.get(query.lower().strip(), query)
+
     params = {
         "app_id": settings.adzuna_app_id,
         "app_key": settings.adzuna_app_key,
-        "what": query,
+        "what": adzuna_query,
         "results_per_page": 10,
         "sort_by": "date",
         "content-type": "application/json"
@@ -373,7 +410,7 @@ async def _search_adzuna(query: str, location: str = None, salary_min: int = Non
                 if response.status == 200:
                     data = await response.json()
                     jobs = data.get("results", [])
-                    logger.info(f"Adzuna '{query}': {len(jobs)} ofertas")
+                    logger.info(f"Adzuna '{adzuna_query}': {len(jobs)} ofertas")
 
                     for job in jobs:
                         if job.get("title") and job.get("redirect_url"):
@@ -381,9 +418,9 @@ async def _search_adzuna(query: str, location: str = None, salary_min: int = Non
                 else:
                     logger.warning(f"Adzuna error: {response.status}")
     except Exception as e:
-        logger.error(f"Error Adzuna '{query}': {e}")
+        logger.error(f"Error Adzuna '{adzuna_query}': {e}")
 
-    # Fix 4: Slice to top 5 before returning
+    # BUG 5: Cap at 5 to reduce token bloat
     return all_jobs[:5]
 
 
@@ -443,19 +480,17 @@ async def _search_remotive(query: str, location_hint: str = None) -> List[dict]:
     return all_jobs[:5]
 
 
-async def search_jobs(query: str = None) -> dict:
+async def search_jobs(query: str = None, limit: int = 8) -> dict:
     """Search jobs from all sources for scheduled briefing.
 
     Uses rotating queries based on weekday if no query provided.
-    Returns top 5 results after deduplication, balancing and scoring.
+    Returns top `limit` results after deduplication, balancing and scoring.
     """
-    LIMIT = 5
-
     # Use rotating query if none provided
     if query is None:
         query = DEFAULT_QUERIES[datetime.now(ZoneInfo("Europe/Madrid")).weekday()]
 
-    # Fix 4: Fetch from all sources in parallel (each already sliced to [:5])
+    # Fetch from all sources in parallel (each already sliced to [:5])
     results_raw = await asyncio.gather(
         _search_jsearch(query),
         _search_adzuna(query),
@@ -482,8 +517,13 @@ async def search_jobs(query: str = None) -> dict:
     jsearch_jobs = [_strip_filter_fields(j) for j in jsearch_jobs]
     adzuna_jobs = [_strip_filter_fields(j) for j in adzuna_jobs]
 
-    # Fix 3: Balance sources
-    balanced = _balance_sources(jsearch_jobs, adzuna_jobs, remotive_jobs, total=LIMIT * 2)
+    # BUG 3 Fix A: Hard Spain-compatibility filter (default mode)
+    jsearch_jobs = [j for j in jsearch_jobs if _is_spain_compatible(j)]
+    adzuna_jobs = [j for j in adzuna_jobs if _is_spain_compatible(j)]
+    remotive_jobs = [j for j in remotive_jobs if _is_spain_compatible(j)]
+
+    # Balance sources
+    balanced = _balance_sources(jsearch_jobs, adzuna_jobs, remotive_jobs, total=limit * 2)
 
     # Deduplicate
     seen = set()
@@ -494,13 +534,11 @@ async def search_jobs(query: str = None) -> dict:
             seen.add(key)
             unique_jobs.append(job)
 
-    # Fix 2: Sort by Spain/remote score (date as tiebreaker)
-    unique_jobs.sort(
-        key=lambda x: (_score_job(x), x.get("date_posted") or ""),
-        reverse=True
-    )
+    # BUG 3 Fix B: Sort by Spain/remote score (date as tiebreaker)
+    unified = unique_jobs
+    unified.sort(key=_score_job, reverse=True)
 
-    top_jobs = unique_jobs[:LIMIT]
+    top_jobs = unified[:limit]
 
     if not top_jobs:
         return {
@@ -511,7 +549,6 @@ async def search_jobs(query: str = None) -> dict:
 
     sources_used = list(dict.fromkeys(job["source"] for job in top_jobs))
 
-    # Fix 5: Return compact string
     return {
         "result": _format_jobs_for_llm(top_jobs, sources_used),
         "jobs_count": len(top_jobs),
@@ -618,11 +655,8 @@ async def search_jobs_custom(
             seen.add(key)
             unique_jobs.append(job)
 
-    # Fix 2: Sort by Spain/remote score (date as tiebreaker)
-    unique_jobs.sort(
-        key=lambda x: (_score_job(x), x.get("date_posted") or ""),
-        reverse=True
-    )
+    # BUG 3 Fix B: Sort by Spain/remote score (scoring only, user chose location explicitly)
+    unique_jobs.sort(key=_score_job, reverse=True)
 
     top_jobs = unique_jobs[:LIMIT]
 

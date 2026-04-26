@@ -473,6 +473,11 @@ class MentorService:
 
                 # Si el mensaje pide crear CV y no hay tool_calls,
                 # forzar reintento con mensaje más explícito
+                # BUG 4: Guard against None/empty response from _call_llm
+                if response is None or not response.choices:
+                    logger.error("LLM response vacía o sin choices")
+                    return "Error temporal del modelo. Intenta de nuevo en unos segundos."
+
                 choice = response.choices[0]
                 if (not choice.message.tool_calls and
                         "create_improved_cv" not in str(
@@ -488,7 +493,6 @@ class MentorService:
                         "No expliques, no preguntes, úsala directamente."
                     )
                     save_message(user_id, "user", hint)
-                choice = response.choices[0]
 
                 # Sin tool calls → respuesta final
                 if not choice.message.tool_calls:
