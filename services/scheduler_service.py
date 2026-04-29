@@ -144,9 +144,13 @@ async def send_jobs_briefing(bot: Bot):
     user_id = int(settings.telegram_user_id)
     try:
         result = await search_jobs(limit=5)
-        ofertas = result.get("ofertas", [])
 
-        if not ofertas:
+        # search_jobs() devuelve: {"result": str, "jobs_count": int, "sources_used": list}
+        jobs_count = result.get("jobs_count", 0)
+        result_text = result.get("result", "")
+        sources_used = result.get("sources_used", [])
+
+        if jobs_count == 0 or not result_text or result_text.startswith("Sin ofertas"):
             await bot.send_message(
                 chat_id=user_id,
                 text=(
@@ -156,30 +160,27 @@ async def send_jobs_briefing(bot: Bot):
             )
             return
 
-        lines = [
-            f"💼 *{len(ofertas)} ofertas relevantes hoy:*\n"
-        ]
-        for i, job in enumerate(ofertas, 1):
-            remoto = "🌍 Remoto" if job.get("remoto") else (
-                f"📍 {job.get('ubicacion', 'N/A')}"
-            )
-            lines.append(
-                f"{i}. *{job['titulo']}*\n"
-                f"   🏢 {job['empresa']} · {remoto}\n"
-                f"   🔗 {job['url'][:70]}"
-            )
+        sources_str = ", ".join(sources_used) if sources_used else "varias fuentes"
+        header = f"💼 *{jobs_count} ofertas relevantes hoy* ({sources_str}):\n"
 
-        lines.append(
-            "\n¿Quieres que analice alguna de estas ofertas "
-            "contra tu CV?"
-        )
+        # Escapar caracteres Markdown que puedan romper el mensaje
+        safe_text = (result_text
+                     .replace("_", "\\_")
+                     .replace("*", "\\*")
+                     .replace("`", "\\`"))
+
+        mensaje = header + "\n" + safe_text + "\n\n¿Quieres que analice alguna contra tu CV?"
+
+        # Limite de Telegram: 4096 chars
+        if len(mensaje) > 4000:
+            mensaje = mensaje[:4000] + "…"
 
         await bot.send_message(
             chat_id=user_id,
-            text="\n\n".join(lines),
+            text=mensaje,
             parse_mode="Markdown"
         )
-        logger.info(f"Jobs briefing enviado: {len(ofertas)} ofertas")
+        logger.info(f"Jobs briefing enviado: {jobs_count} ofertas de {sources_str}")
 
     except Exception as e:
         logger.error(f"Error en jobs briefing: {e}", exc_info=True)
